@@ -48,7 +48,8 @@ function cropEnglish(id) {
 }
 function apiProfile() {
   const p = state.profile || {};
-  return { location: p.location?.name || '', crops: (p.crops || []).map(cropEnglish), lang: p.lang || 'en' };
+  const localTime = new Date().toLocaleString('en-GB', { weekday: 'long', hour: '2-digit', minute: '2-digit', hour12: true });
+  return { location: p.location?.name || '', crops: (p.crops || []).map(cropEnglish), lang: p.lang || 'en', localTime };
 }
 
 /* =========================================================
@@ -479,7 +480,12 @@ async function compressImage(file, maxSide = 1024) {
    Chat
    ========================================================= */
 function splitSources(text) {
-  const lines = String(text).replace(/\*\*/g, '').replace(/^#+\s*/gm, '').split('\n');
+  // Make sure a "Source:" glued to the end of a sentence gets its own line.
+  const lines = String(text)
+    .replace(/\*\*/g, '')
+    .replace(/^#+\s*/gm, '')
+    .replace(/([^\n])\s*((?:Sources?|स्रोत)\s*[:：])/g, '$1\n$2')
+    .split('\n');
   const body = [];
   const sources = [];
   for (const line of lines) {
