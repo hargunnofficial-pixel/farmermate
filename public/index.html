@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1F5C3A">
+<meta name="description" content="FarmerMate: an AI farm adviser with local weather, leaf photo diagnosis and trusted farming guides.">
+<title>FarmerMate · AI farm adviser</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ============ PASSWORD ============ -->
+  <section class="view" id="view-login" hidden>
+    <form class="setup login" id="login-form">
+      <div class="brand-row">
+        <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 20c0-8 5-13 13-14-1 8-6 13-13 14z"/><path d="M6 20l7-7"/></svg></span>
+        <span class="brand-name">FarmerMate</span>
+      </div>
+      <h1 class="display" data-i18n="loginTitle"></h1>
+      <p class="muted" data-i18n="loginSub"></p>
+      <div class="field">
+        <label class="label" for="login-password" data-i18n="password"></label>
+        <input id="login-password" type="password" autocomplete="current-password" class="pw-input" required>
+      </div>
+      <p class="error" id="login-error" hidden></p>
+      <button type="submit" class="btn-primary big" id="login-btn" data-i18n="enter"></button>
+    </form>
+  </section>
+
+  <!-- ============ SETUP ============ -->
+  <section class="view" id="view-setup" hidden>
+    <div class="setup">
+      <div class="brand-row">
+        <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 20c0-8 5-13 13-14-1 8-6 13-13 14z"/><path d="M6 20l7-7"/></svg></span>
+        <span class="brand-name">FarmerMate</span>
+      </div>
+      <h1 class="display" data-i18n="setupTitle"></h1>
+      <p class="muted" data-i18n="setupSub"></p>
+
+      <div class="field">
+        <span class="label" data-i18n="language"></span>
+        <div class="grid2" id="lang-picker">
+          <button type="button" class="option" data-lang="en">English</button>
+          <button type="button" class="option" data-lang="hi">हिंदी</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="label" data-i18n="farmLocation"></span>
+        <button type="button" class="btn-outline" id="use-location">
+          <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+          <span data-i18n="useMyLocation"></span>
+        </button>
+        <form id="place-form" class="place-form">
+          <label for="place-input" class="small muted" data-i18n="orType"></label>
+          <div class="row">
+            <input id="place-input" autocomplete="off" data-i18n-ph="placePh">
+            <button type="submit" class="btn-small" data-i18n="search"></button>
+          </div>
+        </form>
+        <ul id="place-results" class="place-results"></ul>
+        <p id="place-chosen" class="chosen" hidden></p>
+      </div>
+
+      <div class="field">
+        <span class="label" data-i18n="whatGrow"></span>
+        <div class="chips" id="crop-picker"></div>
+        <form id="other-crop-form" class="row" hidden>
+          <label for="other-crop" class="sr-only" data-i18n="otherCrop"></label>
+          <input id="other-crop" data-i18n-ph="otherCropPh">
+          <button type="submit" class="btn-small" data-i18n="add"></button>
+        </form>
+      </div>
+
+      <p class="error" id="setup-error" hidden></p>
+      <button type="button" class="btn-primary big" id="setup-done" data-i18n="continue"></button>
+    </div>
+  </section>
+
+  <!-- ============ HOME ============ -->
+  <section class="view" id="view-home" hidden>
+    <header class="top">
+      <div>
+        <span class="small muted" data-i18n="greeting"></span>
+        <span class="place display" id="home-place"></span>
+      </div>
+      <button type="button" class="lang-pill" data-action="toggle-lang" aria-label="Switch language">EN · हिं</button>
+    </header>
+
+    <div class="weather-card" id="weather-card">
+      <div class="weather-loading" id="weather-loading" data-i18n="loadingWeather"></div>
+    </div>
+
+    <div class="advice" id="advice" hidden></div>
+
+    <div class="grid2 actions">
+      <button type="button" class="action-card" data-go="chat">
+        <span class="action-ic"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg></span>
+        <span class="action-title" data-i18n="askTitle"></span>
+        <span class="small muted" data-i18n="askSub"></span>
+      </button>
+      <button type="button" class="action-card" data-go="scan">
+        <span class="action-ic"><svg class="ic" viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M8 15c0-4 3-7 8-7 0 5-3 8-7 8"/></svg></span>
+        <span class="action-title" data-i18n="scanTitle"></span>
+        <span class="small muted" data-i18n="scanSub"></span>
+      </button>
+    </div>
+
+    <h2 class="section-title display" data-i18n="myCrops"></h2>
+    <div class="crop-list" id="crop-list"></div>
+  </section>
+
+  <!-- ============ CHAT ============ -->
+  <section class="view view-chat" id="view-chat" hidden>
+    <header class="chat-head">
+      <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 20c0-8 5-13 13-14-1 8-6 13-13 14z"/><path d="M6 20l7-7"/></svg></span>
+      <div class="chat-head-text">
+        <span class="display chat-name">FarmerMate</span>
+        <span class="small muted" data-i18n="chatSub"></span>
+      </div>
+      <button type="button" class="icon-btn" id="clear-chat" data-i18n-label="newChat">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </header>
+    <div class="messages" id="messages" aria-live="polite"></div>
+    <form class="composer" id="composer">
+      <div class="attach-preview" id="attach-preview" hidden>
+        <img id="attach-img" alt="">
+        <button type="button" class="remove-attach" id="remove-attach" data-i18n-label="removePhoto">×</button>
+      </div>
+      <div class="composer-row">
+        <label class="icon-btn outline" data-i18n-label="attachPhoto" id="attach-label">
+          <input type="file" accept="image/*" id="chat-file" class="sr-only">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+        </label>
+        <label for="chat-input" class="sr-only" data-i18n="message"></label>
+        <textarea id="chat-input" rows="1" data-i18n-ph="askPh"></textarea>
+        <button type="button" class="icon-btn outline" id="mic-btn" data-i18n-label="speak" hidden>
+          <svg class="ic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        </button>
+        <button type="submit" class="icon-btn solid" id="send-btn" data-i18n-label="send">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <!-- ============ SCAN ============ -->
+  <section class="view" id="view-scan" hidden>
+    <div id="scan-pick" class="scan-pick">
+      <h1 class="display" data-i18n="scanTitle"></h1>
+      <p class="muted" data-i18n="scanHelp"></p>
+      <div class="field">
+        <label class="label" for="scan-crop" data-i18n="whichCrop"></label>
+        <select id="scan-crop"></select>
+      </div>
+      <label class="photo-drop" id="photo-drop">
+        <input type="file" accept="image/*" capture="environment" id="scan-file" class="sr-only">
+        <svg class="ic big-ic" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+        <span class="action-title" data-i18n="takePhoto"></span>
+        <span class="small muted" data-i18n="photoTip"></span>
+      </label>
+      <label class="btn-outline" for="scan-gallery">
+        <input type="file" accept="image/*" id="scan-gallery" class="sr-only">
+        <span data-i18n="fromGallery"></span>
+      </label>
+    </div>
+
+    <div id="scan-result" class="scan-result" hidden>
+      <div class="scan-photo">
+        <img id="scan-img" alt="">
+        <button type="button" class="close-btn" id="scan-close" data-i18n-label="close">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="sheet" id="scan-sheet"></div>
+    </div>
+  </section>
+
+  <!-- ============ NAV ============ -->
+  <nav class="tabbar" id="tabbar" hidden>
+    <button type="button" data-go="home"><svg class="ic" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span data-i18n="navHome"></span></button>
+    <button type="button" data-go="chat"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg><span data-i18n="navAsk"></span></button>
+    <button type="button" data-go="scan"><svg class="ic" viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg><span data-i18n="navScan"></span></button>
+    <button type="button" data-go="setup"><svg class="ic" viewBox="0 0 24 24"><path d="M12 21c-4-3-7-6.5-7-11a7 7 0 0 1 14 0c0 4.5-3 8-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg><span data-i18n="navFarm"></span></button>
+  </nav>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
