@@ -16,10 +16,15 @@ before(async () => {
     req.on('end', () => {
       lastRequest = JSON.parse(raw);
       lastModel = req.url;
+      modelsCalled.push(req.url.split('/models/')[1].split(':')[0]);
       res.setHeader('Content-Type', 'application/json');
       if (mode === '404' && req.url.includes('gemini-flash-latest')) {
         res.statusCode = 404;
         return res.end(JSON.stringify({ error: { message: 'model not found' } }));
+      }
+      if ((mode === '503-primary' && req.url.includes('gemini-flash-latest')) || mode === '503-all') {
+        res.statusCode = 503;
+        return res.end(JSON.stringify({ error: { message: 'This model is currently experiencing high demand.' } }));
       }
       if (mode === '429') {
         res.statusCode = 429;
@@ -37,7 +42,9 @@ before(async () => {
   await new Promise((r) => fake.listen(0, r));
   process.env.GEMINI_BASE_URL = `http://127.0.0.1:${fake.address().port}`;
   process.env.GEMINI_API_KEY = 'test-key';
+  process.env.GEMINI_RETRY_DELAY_MS = '0';
 });
+const modelsCalled = [];
 after(() => fake.close());
 
 function call(handler, body, method = 'POST') {
@@ -187,3 +194,23 @@ function callWith(handler, req) {
     handler({ headers: {}, ...req }, res);
   });
 }
+
+test('busy model: retries once, then switches to a backup model', async () => {
+  mode = '503-primary';
+  modelsCalled.length = 0;
+  const { default: chat } = await import('../api/chat.js');
+  const r = await call(chat, { messages: [{ role: 'user', text: 'hello' }], profile });
+  assert.equal(r.status, 200);
+  assert.deepEqual(modelsCalled, ['gemini-flash-latest', 'gemini-flash-latest', 'gemini-2.5-flash']);
+});
+
+test('all models busy: friendly "try again" message', async () => {
+  mode = '503-all';
+  modelsCalled.length = 0;
+  const { default: chat } = await import('../api/chat.js');
+  const r = await call(chat, { messages: [{ role: 'user', text: 'hello' }], profile });
+  assert.equal(r.status, 503);
+  assert.match(r.body.error, /very busy/);
+  assert.equal(modelsCalled.length, 6); // 3 models x (try + 1 retry)
+  mode = 'ok';
+});

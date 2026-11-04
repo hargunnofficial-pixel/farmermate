@@ -68,7 +68,7 @@ Set `ACCESS_PASSWORD` (on Vercel: Settings → Environment Variables) and everyo
 ```
 npm test
 ```
-There are 12 tests. They check the RAG search (English and Hindi), the chat and scan APIs, input validation, the model fallback, the free-tier limit message and the password lock. A **fake Gemini server** is used, so the tests never spend your real quota.
+There are 14 tests. They check the RAG search (English and Hindi), the chat and scan APIs, input validation, the model fallback, the free-tier limit message, the busy-model fallback and the password lock. A **fake Gemini server** is used, so the tests never spend your real quota.
 
 ## Project structure
 
