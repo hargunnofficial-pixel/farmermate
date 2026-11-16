@@ -1,6 +1,6 @@
 {
   "name": "farmermate",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "FarmerMate: an AI farm adviser (FarmerChat-style) with local weather, leaf photo diagnosis and a farming knowledge base.",
   "type": "module",
   "private": true,
