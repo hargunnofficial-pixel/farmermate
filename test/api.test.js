@@ -97,6 +97,25 @@ test('chat: answers, adds weather + matching guide to the hidden prompt', async 
   assert.equal(lastRequest.contents[0].role, 'user');
 });
 
+test('chat: the farm brain numbers reach the AI, and junk is dropped', async () => {
+  const { default: chat } = await import('../api/chat.js');
+  await call(chat, {
+    messages: [{ role: 'user', text: 'Should I irrigate my tomato?' }],
+    profile,
+    insights: [
+      { crop: 'Tomato', stage: 'Flowering & filling', day: 76, daysLeft: 69, needMm: 12.4, threat: 'Late blight', level: 'high', when: 'tomorrow' },
+      { crop: 'Wheat', level: 'extreme', threat: 'Rust', needMm: 'lots' },
+      'nonsense',
+    ],
+    spray: 'tomorrow at 6 am',
+  });
+  const sys = lastRequest.systemInstruction.parts[0].text;
+  assert.match(sys, /Tomato: stage: Flowering & filling \(day 76, about 69 days to harvest\); needs about 12\.4 mm/);
+  assert.match(sys, /high weather risk of Late blight \(tomorrow\)/);
+  assert.match(sys, /Best spray window: tomorrow at 6 am/);
+  assert.doesNotMatch(sys, /extreme|lots|nonsense|Rust/);
+});
+
 test('chat: Hindi mode tells Gemini to answer in Hindi', async () => {
   const { default: chat } = await import('../api/chat.js');
   await call(chat, { messages: [{ role: 'user', text: 'टमाटर की पत्तियां पीली' }], profile: { ...profile, lang: 'hi' }, weather });

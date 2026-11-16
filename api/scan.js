@@ -4,7 +4,7 @@
 import { generate, GeminiError } from '../lib/gemini.js';
 import { retrieve } from '../lib/rag.js';
 import { buildSystemPrompt, buildScanInstruction, SCAN_SCHEMA } from '../lib/prompt.js';
-import { cleanImage, cleanProfile, BadRequest } from '../lib/validate.js';
+import { cleanImage, cleanProfile, cleanInsights, BadRequest } from '../lib/validate.js';
 import { sendJson, getBody, handleError } from '../lib/http.js';
 import { requireAuth } from '../lib/auth.js';
 
@@ -25,7 +25,7 @@ export default async function handler(req, res) {
       minScore: 0.5,
     });
 
-    const system = buildSystemPrompt({ profile, weather: body.weather, guides, mode: 'scan' });
+    const system = buildSystemPrompt({ profile, weather: body.weather, insights: cleanInsights(body), guides, mode: 'scan' });
     const text = await generate({
       system,
       json: SCAN_SCHEMA,
