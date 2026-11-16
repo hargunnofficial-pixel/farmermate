@@ -29,7 +29,8 @@ if (process.env.GEMINI_API_KEY && !/^AIza/.test(process.env.GEMINI_API_KEY)) {
 const { default: chat } = await import('./api/chat.js');
 const { default: scan } = await import('./api/scan.js');
 const { default: login } = await import('./api/login.js');
-const ROUTES = { '/api/chat': chat, '/api/scan': scan, '/api/login': login };
+const { default: health } = await import('./api/health.js');
+const ROUTES = { '/api/chat': chat, '/api/scan': scan, '/api/login': login, '/api/health': health };
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',

@@ -30,7 +30,9 @@ export default async function handler(req, res) {
       return { role: m.role === 'assistant' ? 'model' : 'user', parts };
     });
 
-    const reply = await generate({ system, contents });
+    // A photo in the newest message needs a model that is good at images.
+    const task = messages[messages.length - 1].image ? 'vision' : 'chat';
+    const reply = await generate({ system, contents, task });
     sendJson(res, 200, { reply, sources: guides.map((g) => ({ id: g.id, title: g.title })) });
   } catch (err) {
     handleError(res, err);

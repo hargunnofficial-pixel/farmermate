@@ -29,6 +29,7 @@ export default async function handler(req, res) {
     const text = await generate({
       system,
       json: SCAN_SCHEMA,
+      task: 'vision',
       temperature: 0.2,
       contents: [
         {

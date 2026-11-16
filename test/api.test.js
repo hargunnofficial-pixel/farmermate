@@ -1,8 +1,9 @@
 // End-to-end tests for the API routes, using a fake Gemini server.
 // Run: npm test
-import { test, before, after } from 'node:test';
+import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { resetCooldowns } from '../lib/gemini.js';
 
 let fake;
 let lastRequest = null;
@@ -18,17 +19,28 @@ before(async () => {
       lastModel = req.url;
       modelsCalled.push(req.url.split('/models/')[1].split(':')[0]);
       res.setHeader('Content-Type', 'application/json');
-      if (mode === '404' && req.url.includes('gemini-flash-latest')) {
+      if (mode === '404' && req.url.includes(PRIMARY)) {
         res.statusCode = 404;
         return res.end(JSON.stringify({ error: { message: 'model not found' } }));
       }
-      if ((mode === '503-primary' && req.url.includes('gemini-flash-latest')) || mode === '503-all') {
+      if ((mode === '503-primary' && req.url.includes(PRIMARY)) || mode === '503-all') {
         res.statusCode = 503;
         return res.end(JSON.stringify({ error: { message: 'This model is currently experiencing high demand.' } }));
       }
-      if (mode === '429') {
+      if (mode === '429' || (mode === '429-lite' && req.url.includes('lite'))) {
         res.statusCode = 429;
         return res.end(JSON.stringify({ error: { message: 'quota' } }));
+      }
+      if (mode === '429-daily') {
+        res.statusCode = 429;
+        return res.end(JSON.stringify({ error: { message: 'Quota exceeded', details: [{ violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }] }, { retryDelay: '40s' }] } }));
+      }
+      if (mode === 'bad-key') {
+        res.statusCode = 403;
+        return res.end(JSON.stringify({ error: { message: 'Your API key was reported as leaked. Please use another API key.' } }));
+      }
+      if (mode === 'thoughts') {
+        return res.end(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'secret reasoning', thought: true }, { text: 'Real answer.' }] } }] }));
       }
       const text = lastRequest.generationConfig.responseMimeType
         ? JSON.stringify({
@@ -46,6 +58,8 @@ before(async () => {
 });
 const modelsCalled = [];
 after(() => fake.close());
+beforeEach(() => resetCooldowns());
+const PRIMARY = 'gemini-3.5-flash-lite';
 
 function call(handler, body, method = 'POST') {
   return new Promise((resolve) => {
@@ -127,20 +141,83 @@ test('scan: needs a photo', async () => {
   assert.equal((await call(scan, { crop: 'Tomato' })).status, 400);
 });
 
-test('falls back to gemini-2.5-flash if the default model is gone', async () => {
+test('retired model: moves on to the next model in the list', async () => {
   mode = '404';
   const { default: chat } = await import('../api/chat.js');
   const r = await call(chat, { messages: [{ role: 'user', text: 'hello' }], profile });
   assert.equal(r.status, 200);
-  assert.match(lastModel, /gemini-2\.5-flash/);
+  assert.match(lastModel, /gemini-3\.1-flash-lite/);
 });
 
-test('friendly message when free-tier limit is hit', async () => {
+test('out of quota on one model: the next model answers, and the empty one is skipped next time', async () => {
+  mode = '429-lite';
+  modelsCalled.length = 0;
+  const { default: chat } = await import('../api/chat.js');
+  const msg = { messages: [{ role: 'user', text: 'hello' }], profile };
+  assert.equal((await call(chat, msg)).status, 200);
+  assert.deepEqual(modelsCalled, ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash']);
+  modelsCalled.length = 0;
+  assert.equal((await call(chat, msg)).status, 200);
+  assert.deepEqual(modelsCalled, ['gemini-3.8-flash']); // cooling-down models were not asked again
+});
+
+test('friendly message when every model is rate-limited', async () => {
   mode = '429';
   const { default: chat } = await import('../api/chat.js');
   const r = await call(chat, { messages: [{ role: 'user', text: 'hello' }], profile });
   assert.equal(r.status, 429);
   assert.match(r.body.error, /wait a minute/i);
+});
+
+test('daily quota used up: says so and when it resets', async () => {
+  mode = '429-daily';
+  const { default: chat } = await import('../api/chat.js');
+  const r = await call(chat, { messages: [{ role: 'user', text: 'hello' }], profile });
+  assert.equal(r.status, 429);
+  assert.equal(r.body.dailyLimit, true);
+  assert.match(r.body.error, /for today/);
+});
+
+test('blocked API key: one clear message, no pointless retries', async () => {
+  mode = 'bad-key';
+  modelsCalled.length = 0;
+  const { default: chat } = await import('../api/chat.js');
+  const r = await call(chat, { messages: [{ role: 'user', text: 'hello' }], profile });
+  assert.equal(r.status, 500);
+  assert.match(r.body.error, /rejected the Gemini API key/);
+  assert.equal(modelsCalled.length, 1);
+});
+
+test('hides the model\'s private thinking from the answer', async () => {
+  mode = 'thoughts';
+  const { default: chat } = await import('../api/chat.js');
+  const r = await call(chat, { messages: [{ role: 'user', text: 'hello' }], profile });
+  assert.equal(r.body.reply, 'Real answer.');
+});
+
+test('leaf scans and photo questions use the vision model list', async () => {
+  mode = 'ok';
+  const { default: scan } = await import('../api/scan.js');
+  const { default: chat } = await import('../api/chat.js');
+  await call(scan, { image: { mimeType: 'image/jpeg', data: 'aGVsbG8=' }, crop: 'Tomato', profile });
+  assert.match(lastModel, /gemini-3\.8-flash/);
+  await call(chat, { messages: [{ role: 'user', text: 'look', image: { mimeType: 'image/jpeg', data: 'aGVsbG8=' } }], profile });
+  assert.match(lastModel, /gemini-3\.8-flash/);
+  await call(chat, { messages: [{ role: 'user', text: 'hello' }], profile });
+  assert.match(lastModel, /gemini-3\.5-flash-lite/);
+});
+
+test('health check: reports which models work', async () => {
+  mode = '404';
+  const { default: health } = await import('../api/health.js');
+  const quick = await callWith(health, { method: 'GET', url: '/api/health' });
+  assert.equal(quick.body.keySet, true);
+  assert.equal(quick.body.models, undefined);
+  const deep = await callWith(health, { method: 'GET', url: '/api/health?deep=1' });
+  assert.equal(deep.body.ok, true);
+  assert.deepEqual(deep.body.models[0], { model: 'gemini-3.5-flash-lite', works: false, status: 404, message: 'model not found' });
+  assert.equal(deep.body.models[1].works, true);
+  mode = 'ok';
 });
 
 test('password lock: API refuses without the password, works after login', async () => {
@@ -201,7 +278,7 @@ test('busy model: retries once, then switches to a backup model', async () => {
   const { default: chat } = await import('../api/chat.js');
   const r = await call(chat, { messages: [{ role: 'user', text: 'hello' }], profile });
   assert.equal(r.status, 200);
-  assert.deepEqual(modelsCalled, ['gemini-flash-latest', 'gemini-flash-latest', 'gemini-2.5-flash']);
+  assert.deepEqual(modelsCalled, [PRIMARY, PRIMARY, 'gemini-3.1-flash-lite']);
 });
 
 test('all models busy: friendly "try again" message', async () => {
@@ -211,6 +288,6 @@ test('all models busy: friendly "try again" message', async () => {
   const r = await call(chat, { messages: [{ role: 'user', text: 'hello' }], profile });
   assert.equal(r.status, 503);
   assert.match(r.body.error, /very busy/);
-  assert.equal(modelsCalled.length, 6); // 3 models x (try + 1 retry)
+  assert.equal(modelsCalled.length, 12); // 6 models x (try + 1 retry)
   mode = 'ok';
 });
