@@ -9,6 +9,7 @@ A FarmerChat-style AI agronomist for small farmers. It's built as a TKS Focus **
 - **Crop stage tracker**: enter a sowing date and FarmerMate tracks the growth stage, days to harvest and what to focus on now.
 - **Scan a leaf**: take a photo and get the likely disease or pest, how sure the AI is, and what to do. Scans are kept in a field log.
 - **Trusted guides (RAG)**: answers are grounded in a built-in library of 32 farming guides, and it shows the source.
+- **Field Station (live sensors)**: an ESP32 sensor box on a real plant sends temperature, humidity, soil moisture and leaf wetness every 10 minutes. The **My field** page shows live values, disease risk measured from real leaf wetness, a 24-hour / 7-day chart, and how far the field is from the weather forecast. The AI chat uses these measured numbers too.
 - **Works offline**: the app opens without internet and shows the last saved forecast. Light and dark mode.
 - **Free to run**: Gemini API free tier, Open-Meteo weather (no key), Vercel free hosting.
 
