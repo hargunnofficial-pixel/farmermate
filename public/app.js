@@ -1,6 +1,7 @@
 import { STRINGS, CROPS, WEATHER_CODES } from './i18n.js';
 import { CROP_DATA, STAGES, THREATS, STAGE_TASKS } from './engine/crops.js';
 import { farmInsights, sprayWindow } from './engine/brain.js';
+import { STATION, fetchReadings, fetchStationForecast, stationStatus, stationRisk, compareForecast, stationSummary } from './engine/station.js';
 
 /* =========================================================
    Storage (saved on this phone only)
@@ -39,6 +40,11 @@ const state = {
   chatImage: null, // { mimeType, data, url }
   sending: false,
   sessionImages: {}, // chat index -> data URL (not saved, to keep storage small)
+  station: null, // { readings, at } live sensor readings from the field station
+  stationForecast: null, // forecast for the station's own location, to compare with
+  stationError: false,
+  fieldMetric: 'rh',
+  fieldRange: 24,
 };
 if (state.profile && !state.profile.sown) state.profile.sown = {};
 
@@ -168,7 +174,7 @@ function applyTheme() {
 /* =========================================================
    Navigation
    ========================================================= */
-const VIEWS = ['login', 'setup', 'home', 'crops', 'crop', 'chat', 'scan'];
+const VIEWS = ['login', 'setup', 'home', 'field', 'crops', 'crop', 'chat', 'scan'];
 
 function go(view, opts = {}) {
   if (state.locked) view = 'login';
@@ -184,13 +190,14 @@ function go(view, opts = {}) {
 function render() {
   for (const v of VIEWS) $(`#view-${v}`).hidden = v !== state.view;
   $('#tabbar').hidden = !state.profile || state.view === 'login';
-  const tab = state.view === 'crop' ? 'crops' : state.view;
+  const tab = state.view === 'crop' ? 'crops' : state.view === 'field' ? 'home' : state.view;
   document.querySelectorAll('#tabbar button').forEach((b) => {
     if (b.dataset.go === tab) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   });
   if (state.view === 'setup') renderSetup();
   if (state.view === 'home') renderHome();
+  if (state.view === 'field') renderField();
   if (state.view === 'crops') renderCrops();
   if (state.view === 'crop') renderCrop();
   if (state.view === 'chat') renderChat();
@@ -460,7 +467,7 @@ function apiProfile() {
 }
 function apiContext() {
   const w = state.weather;
-  return { profile: apiProfile(), weather: w ? { current: w.current, daily: w.daily } : null, ...insightsPayload() };
+  return { profile: apiProfile(), weather: w ? { current: w.current, daily: w.daily } : null, ...insightsPayload(), station: stationPayload() };
 }
 
 /** The short list at the top of Home: what matters today, most urgent first. */
@@ -531,6 +538,7 @@ async function renderHome() {
     $('#priorities').replaceChildren();
   }
   renderRail();
+  renderFieldCard();
   try {
     const w = await loadWeather();
     if (state.view !== 'home') return;
@@ -660,6 +668,209 @@ async function renderCrops() {
       /* cards without risk are still useful */
     }
   }
+}
+
+/* =========================================================
+   Field station: live sensors on a real plant
+   ========================================================= */
+async function loadStation(force = false) {
+  const fresh = state.station && Date.now() - state.station.at < 5 * 60000;
+  if (!fresh || force) {
+    try {
+      state.station = { readings: await fetchReadings(168), at: Date.now() };
+      state.stationError = false;
+    } catch {
+      state.stationError = true;
+    }
+  }
+  if (!state.stationForecast || Date.now() - state.stationForecast.at > 30 * 60000) {
+    try {
+      state.stationForecast = { ...(await fetchStationForecast()), at: Date.now() };
+    } catch {
+      /* the comparison card just waits */
+    }
+  }
+  return state.station;
+}
+
+function fieldData(rangeH = 24) {
+  const readings = state.station?.readings || [];
+  const status = stationStatus(readings);
+  const risk = stationRisk(readings, state.profile?.crops || []);
+  const f = state.stationForecast;
+  const compare = f ? compareForecast(readings, f.hourly, f.utcOffset, Date.now(), 24) : null;
+  const compareRange = f ? compareForecast(readings, f.hourly, f.utcOffset, Date.now(), rangeH) : null;
+  return { readings, status, risk, compare, compareRange };
+}
+
+// What the AI gets: the latest measured values and the measured disease risk.
+function stationPayload() {
+  if (!state.station?.readings?.length) return undefined;
+  const d = fieldData();
+  return stationSummary(d.readings, d.risk, d.compare) || undefined;
+}
+
+const riskName = (id) => (THREATS[id] ? threatName(id) : lang() === 'hi' ? 'फफूंद रोग' : 'Fungal disease');
+const fmt = (v, digits = 0) => (v == null ? '–' : Number(v).toFixed(digits));
+
+function livePill(status) {
+  return h('span', { class: `live-pill ${status.live ? 'on' : 'off'}` }, h('i'), status.live ? t('live') : t('offline'));
+}
+
+function stationTiles(last, compact = false) {
+  const tile = (label, value, unit, extra) =>
+    h('div', { class: 'tile' }, h('span', { class: 'tile-label' }, label), h('span', { class: 'tile-val' }, value, unit ? h('small', null, unit) : null), extra || null);
+  const soilBar = compact ? null : h('div', { class: 'tile-bar', 'aria-hidden': 'true' }, h('i', { style: `width:${last.soil ?? 0}%` }));
+  return h('div', { class: `tiles${compact ? ' compact' : ''}` },
+    tile(t('temperature'), fmt(last.temp, 1), '°C'),
+    tile(t('airHumidity'), fmt(last.rh), '%'),
+    tile(t('soilMoisture'), fmt(last.soil), '%', soilBar),
+    h('div', { class: `tile leaf ${last.leafWet ? 'wet' : 'dry'}` },
+      h('span', { class: 'tile-label' }, t('leaf')),
+      h('span', { class: 'tile-val' }, icon('drop', 'ic tile-ic'), last.leafWet ? t('leafWet') : t('leafDry')))
+  );
+}
+
+/* ---- Home: small live card ---- */
+async function renderFieldCard() {
+  const box = $('#field-card');
+  const draw = () => {
+    const { readings, status, risk } = fieldData();
+    if (!readings.length) {
+      box.replaceChildren(state.stationError ? h('div', { class: 'field-card empty' }, t('stationError')) : '');
+      return;
+    }
+    const L = t('riskLevels');
+    box.replaceChildren(
+      h('button', { type: 'button', class: 'field-card card-btn', onclick: () => go('field') },
+        h('div', { class: 'fc-head' },
+          h('span', { class: 'fc-title' }, h('strong', null, t('fieldStation')), h('span', { class: 'small muted' }, STATION.name[lang()])),
+          livePill(status)),
+        stationTiles(status.last, true),
+        h('div', { class: 'fc-foot' },
+          h('span', { class: `risk-chip l${risk.level}` }, h('i'), `${riskName(risk.threat)}: ${L[risk.level]}`),
+          h('span', { class: 'link-ish' }, t('seeField'), icon('chevron', 'ic pri-go')))
+      )
+    );
+  };
+  draw();
+  await loadStation();
+  if (state.view === 'home') draw();
+}
+
+/* ---- My field page ---- */
+async function renderField() {
+  const wrap = $('#field-detail');
+  const back = h('button', { type: 'button', class: 'back', onclick: () => go('home') }, icon('back'), t('back'));
+  if (!state.station) wrap.replaceChildren(back, h('div', { class: 'card' }, h('p', { class: 'muted' }, t('loadingWeather'))));
+  await loadStation();
+  if (state.view !== 'field') return;
+  const d = fieldData(state.fieldRange);
+  const L = t('riskLevels');
+
+  const head = h('div', { class: 'field-head' },
+    h('div', null,
+      h('h1', { class: 'display page-title' }, t('fieldTitle')),
+      h('span', { class: 'muted' }, `${STATION.name[lang()]} · ${STATION.place.name}`)),
+    d.readings.length ? livePill(d.status) : null);
+
+  if (!d.readings.length) {
+    wrap.replaceChildren(back, head, h('div', { class: 'card' }, h('p', { class: 'muted' }, state.stationError ? t('stationError') : t('noReadings'))));
+    return;
+  }
+
+  const box = h('div', { class: 'detail stagger' });
+  const last = d.status.last;
+
+  /* live values */
+  const liveCard = h('div', { class: 'card' },
+    stationTiles(last),
+    h('span', { class: 'small muted' }, d.status.live ? t('updated')(timeAgo(last.at)) : t('stationOff')(timeAgo(last.at))));
+  box.append(liveCard);
+
+  /* measured disease risk */
+  const threat = riskName(d.risk.threat);
+  const riskCard = h('div', { class: `card risk-card l${d.risk.level}` },
+    h('div', { class: 'rc-top' },
+      h('span', { class: 'rc-ic' }, icon(d.risk.level ? 'warn' : 'check')),
+      h('div', null, h('span', { class: 'small' }, t('measuredRisk')), h('strong', { class: 'rc-level display' }, `${threat}: ${L[d.risk.level]}`))),
+    h('div', { class: 'wet-bar', 'aria-hidden': 'true' }, h('i', { style: `width:${(d.risk.wetCount / 24) * 100}%` })),
+    h('p', null, h('strong', null, t('wetHoursText')(d.risk.wetCount)), ' ', t('riskWhy')[d.risk.level]),
+    d.risk.level && THREATS[d.risk.threat] ? h('p', { class: 'small' }, THREATS[d.risk.threat].do[lang()]) : null,
+    h('button', { type: 'button', class: 'btn-small soft', style: 'align-self:flex-start', onclick: () => askAbout(t('askWhyQ')(L[d.risk.level].toLowerCase(), threat)) }, icon('chat'), t('askWhy'))
+  );
+  box.append(riskCard);
+
+  /* field vs forecast */
+  if (d.compare) {
+    const g = d.compare.rhGap;
+    const vs = h('div', { class: 'card vs-card' },
+      h('h3', null, t('vsForecast')),
+      h('div', { class: 'vs-big' }, h('span', { class: 'big-num' }, `${g > 0 ? '+' : ''}${g}`, h('small', null, '%')), h('span', null, g >= 0 ? t('moreHumid') : t('lessHumid'))),
+      h('div', { class: 'vs-meta small muted' },
+        d.compare.tGap != null ? h('span', null, t('tempGap')(d.compare.tGap)) : null,
+        h('span', null, t('maxGap')(d.compare.maxRhGap))),
+      h('p', { class: 'small muted' }, t('gapNote')));
+    box.append(vs);
+  }
+
+  /* history chart */
+  const chartCard = h('div', { class: 'card' });
+  const metrics = [['rh', t('airHumidity')], ['temp', t('temperature')], ['soil', t('soilMoisture')]];
+  const seg = (items, cur, onPick) =>
+    h('div', { class: 'seg' }, ...items.map(([v, label]) => h('button', { type: 'button', 'aria-pressed': String(v === cur), onclick: () => onPick(v) }, label)));
+  chartCard.append(
+    h('div', { class: 'chart-head' }, h('h3', null, t('history')),
+      seg([[24, t('range24')], [168, t('range7')]], state.fieldRange, (v) => { state.fieldRange = v; renderField(); })),
+    seg(metrics, state.fieldMetric, (v) => { state.fieldMetric = v; renderField(); }),
+    lineChart(d, state.fieldMetric, state.fieldRange),
+    h('span', { class: 'small muted' }, t('readingsCount')(d.readings.length))
+  );
+  box.append(chartCard);
+
+  wrap.replaceChildren(back, head, box);
+}
+
+/** Simple SVG line chart. Field readings as a solid line, the forecast as a dashed line. */
+function lineChart(d, metric, rangeH) {
+  const now = Date.now();
+  const from = now - rangeH * 3600000;
+  const key = { rh: 'rh', temp: 'temp', soil: 'soil' }[metric];
+  const pts = d.readings.filter((r) => r.at >= from && r[key] != null).map((r) => [r.at, r[key]]);
+  if (pts.length < 2) return h('p', { class: 'muted small' }, t('notEnough'));
+  const fc = metric === 'soil' ? [] : (d.compareRange?.pairs || []).filter((p) => p.at >= from).map((p) => [p.at, metric === 'rh' ? p.forecastRh : p.forecastT]).filter((p) => p[1] != null);
+  const vals = [...pts, ...fc].map((p) => p[1]);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (metric !== 'temp') { lo = Math.max(0, lo - 5); hi = Math.min(100, hi + 5); } else { lo -= 1; hi += 1; }
+  if (hi - lo < 4) { lo -= 2; hi += 2; }
+  const W = 320, H = 150, P = { l: 30, r: 8, t: 10, b: 22 };
+  const x = (ts) => P.l + ((ts - from) / (now - from)) * (W - P.l - P.r);
+  const y = (v) => P.t + (1 - (v - lo) / (hi - lo)) * (H - P.t - P.b);
+  const path = (arr) => arr.map(([ts, v], i) => `${i ? 'L' : 'M'}${x(ts).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');
+  const area = `${path(pts)} L${x(pts[pts.length - 1][0]).toFixed(1)} ${H - P.b} L${x(pts[0][0]).toFixed(1)} ${H - P.b} Z`;
+  const unit = metric === 'temp' ? '°' : '%';
+  const ticks = [lo, (lo + hi) / 2, hi].map((v) => `<text x="${P.l - 6}" y="${y(v) + 4}" text-anchor="end">${Math.round(v)}${unit}</text><line x1="${P.l}" x2="${W - P.r}" y1="${y(v)}" y2="${y(v)}"/>`).join('');
+  const offset = (state.stationForecast?.utcOffset ?? 14400) * 1000;
+  const xl = (ts) => {
+    const dte = new Date(ts + offset);
+    return rangeH <= 24 ? `${String(dte.getUTCHours()).padStart(2, '0')}:00` : t('days')[dte.getUTCDay()];
+  };
+  const xTicks = [0, 0.5, 1].map((f) => { const ts = from + f * (now - from); return `<text x="${x(ts)}" y="${H - 6}" text-anchor="${f === 0 ? 'start' : f === 1 ? 'end' : 'middle'}">${xl(ts)}</text>`; }).join('');
+  const lastPt = pts[pts.length - 1];
+  const wrap = document.createElement('div');
+  wrap.className = 'chart';
+  // Numbers and our own strings only, so innerHTML is safe here.
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${metric} chart">
+      <g class="grid">${ticks}</g>
+      <path class="area ${metric}" d="${area}"/>
+      ${fc.length > 1 ? `<path class="fc" d="${path(fc)}"/>` : ''}
+      <path class="line ${metric}" d="${path(pts)}"/>
+      <circle class="end ${metric}" cx="${x(lastPt[0])}" cy="${y(lastPt[1])}" r="4"/>
+      <g class="xl">${xTicks}</g>
+    </svg>
+    ${fc.length > 1 ? `<div class="legend chart-legend"><span class="lf ${metric}">${t('yourField')}</span><span class="fcl">${t('forecastWord')}</span></div>` : ''}`;
+  return wrap;
 }
 
 /* =========================================================
