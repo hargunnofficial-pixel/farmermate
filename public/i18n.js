@@ -171,6 +171,7 @@ export const STRINGS = {
     leaf: 'Leaf',
     leafWet: 'Wet',
     leafDry: 'Dry',
+    leafFault: 'Sensor check',
     measuredRisk: 'Disease risk from your sensors',
     wetHoursText: (n) => `${n} of the last 24 hours had wet leaves or 90%+ humidity.`,
     riskWhy: [
@@ -368,6 +369,7 @@ export const STRINGS = {
     leaf: 'पत्ती',
     leafWet: 'गीली',
     leafDry: 'सूखी',
+    leafFault: 'सेंसर जाँच',
     measuredRisk: 'आपके सेंसर से रोग का खतरा',
     wetHoursText: (n) => `पिछले 24 में से ${n} घंटे पत्तियाँ गीली रहीं या नमी 90% से ज़्यादा रही।`,
     riskWhy: [

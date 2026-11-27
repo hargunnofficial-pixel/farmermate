@@ -32,6 +32,8 @@ export async function fetchReadings(hours = 168) {
     soil: r.soil_pct,
     leafRaw: r.leaf_raw,
     leafWet: r.leaf_wet === true,
+    // null leaf_wet with a raw value = the database flagged the leaf sensor as faulty
+    leafFault: r.leaf_wet == null && r.leaf_raw != null,
   }));
 }
 

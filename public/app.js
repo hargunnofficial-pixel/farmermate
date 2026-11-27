@@ -725,9 +725,9 @@ function stationTiles(last, compact = false) {
     tile(t('temperature'), fmt(last.temp, 1), '°C'),
     tile(t('airHumidity'), fmt(last.rh), '%'),
     tile(t('soilMoisture'), fmt(last.soil), '%', soilBar),
-    h('div', { class: `tile leaf ${last.leafWet ? 'wet' : 'dry'}` },
+    h('div', { class: `tile leaf ${last.leafFault ? 'fault' : last.leafWet ? 'wet' : 'dry'}` },
       h('span', { class: 'tile-label' }, t('leaf')),
-      h('span', { class: 'tile-val' }, icon('drop', 'ic tile-ic'), last.leafWet ? t('leafWet') : t('leafDry')))
+      h('span', { class: 'tile-val' }, icon('drop', 'ic tile-ic'), last.leafFault ? t('leafFault') : last.leafWet ? t('leafWet') : t('leafDry')))
   );
 }
 

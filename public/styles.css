@@ -523,3 +523,5 @@ button.pri:hover { border-color: var(--line-strong); }
 .chart-legend .lf::before { background: var(--blue); }
 .chart-legend .lf.temp::before { background: var(--red); }
 .chart-legend .fcl::before { background: none; border: 1.5px dashed var(--muted); width: 10px; height: 0; border-radius: 0; vertical-align: middle; }
+
+.tile.leaf.fault .tile-val{color:#B26A00;}
